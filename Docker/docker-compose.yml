@@ -6,6 +6,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "9080:80"
+      - "50051:50051"
     depends_on:
       - postgres
 

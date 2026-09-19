@@ -26,10 +26,10 @@ namespace BikeBooking.Services
             }
 
             var newModel = await _context.FindAsync<Logic.Model>(newBikeData.modelId);
-            _context.Bikes.Add(new Logic.Bike() { Model = newModel, Year = newBikeData.year, Availability = true });
+            _context.Bikes.Add(new Logic.Bike() { Model = newModel, Year = newBikeData.year, Price = newBikeData.price });
             await _context.SaveChangesAsync();
 
-           
+
         }
 
         public async Task CreateCategory(CreateCategoryDto newCategoryData)
@@ -67,6 +67,15 @@ namespace BikeBooking.Services
             await _context.SaveChangesAsync();
         }
 
+        public async Task<BikesDto[]> GetBikes()
+        {
+            var bikes = await _context.Bikes
+           .Include(b => b.Model)
+           .ThenInclude(m => m.Category)
+           .ToArrayAsync();
+            return bikes.Select(bike => new BikesDto(bike.Id, bike.Year, bike.Model.Category.Name, bike.Model.Power, bike.Model.Name, bike.Price)).ToArray();
+        }
+
         public async Task<СategoriesBikesDto[]> GetCategories()
         {
             var categories = await _context.Categories.ToArrayAsync();
@@ -76,9 +85,10 @@ namespace BikeBooking.Services
 
         public async Task<ModelsBikesDto[]> GetModels()
         {
-            var models = await _context.Models.Include(m=>m.Category).ToArrayAsync();
+            var models = await _context.Models.Include(m => m.Category).ToArrayAsync();
             return models.Select(model => new ModelsBikesDto(model.Id, model.Power, model.StartYear, model.EndYear, model.Name, model.Category.Id, model.Category.Name)).ToArray();
 
         }
+      
     }
 }

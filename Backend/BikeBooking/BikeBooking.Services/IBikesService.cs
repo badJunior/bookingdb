@@ -10,7 +10,7 @@ namespace BikeBooking.Services
     public interface IBikesService
 
     {
-
+        Task<BikesDto[]> GetBikes();
         Task<СategoriesBikesDto[]> GetCategories();
         Task CreateCategory(CreateCategoryDto newCategoryData);
         Task<ModelsBikesDto[]> GetModels();
@@ -23,6 +23,9 @@ namespace BikeBooking.Services
 
     public record ModelsBikesDto(int id,int power,int startYear, int? endYear,string name, int categoryId, string categoryName);
     public record CreateModelDto( int power, int startYear, int? endYear, string name, int categoryId);
-    public record CreateBikeDto( int modelId,int year);
+    public record CreateBikeDto( int modelId,int year, int price);
+    public record BikesDto(int Id,  int Year, string Category, int Power, string Model, int Price);
+
+   
   
 }

@@ -4,10 +4,11 @@
     {
         public int Id { get; set; }
         public Model Model { get; set; }
-        public bool Availability { get; set; }
+        
         public int Year { get; set; }
 
-
+        public int Price { get; set; }
+        public ICollection<Booking> Bookings { get; set; } = new List<Booking>();
 
     }
 }
