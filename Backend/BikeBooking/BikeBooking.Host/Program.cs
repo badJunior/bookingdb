@@ -23,6 +23,25 @@ builder.Services.AddScoped<IBookingService, BookingServices>();
 builder.Services.AddScoped<IBikesService, BikesService>();
 builder.Services.AddSingleton<IStripeClient>(new StripeClient(builder.Configuration["Stripe:SecretKey"]));
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IDeliveryService, DeliveryService>();
+builder.Services.AddScoped<ICourierService, CourierService>();
+builder.Services.AddScoped<IReceiptService, EmulatedReceiptService>();
+builder.Services.AddScoped<IInspectionService, InspectionService>();
+builder.Services.AddSingleton<IFileStorage, LocalFileStorage>();
+builder.Services.AddMemoryCache();
+
+builder.Services.Configure<DeliveryOptions>(builder.Configuration.GetSection("Delivery"));
+builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));
+
+builder.Services.AddHttpClient<IGeocodingService, NominatimGeocodingService>(client =>
+{
+    client.BaseAddress = new Uri("https://nominatim.openstreetmap.org/");
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("BikeBooking/1.0 (bike rental delivery)");
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+
+builder.Services.AddHostedService<DeliveryAssignmentBackgroundService>();
 
 // Настройка Swagger с поддержкой JWT и ролей
 builder.Services.AddSwaggerGen(c =>
@@ -61,7 +80,15 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 builder.Services.AddCors((options) => options.AddDefaultPolicy((builder) =>
-    builder.WithOrigins(["http://localhost:8080", "http://localhost:80", "http://localhost", "http://localhost:5173"])
+    builder.WithOrigins([
+        "http://localhost:8080",
+        "http://localhost:80",
+        "http://localhost",
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174"
+    ])
            .AllowAnyHeader()
            .AllowAnyMethod()));
 
@@ -83,12 +110,38 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ClockSkew = TimeSpan.Zero
         };
+
+        // Browsers cannot attach an Authorization header to <img> requests,
+        // so photo files accept a short-lived query token.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                if (context.Request.Path.StartsWithSegments("/photos"))
+                {
+                    var token = context.Request.Query["access_token"];
+                    if (!string.IsNullOrEmpty(token))
+                        context.Token = token;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("User", policy =>
         policy.RequireClaim(ClaimTypes.Role, "User", "Admin"));
+
+    options.AddPolicy("Admin", policy =>
+        policy.RequireClaim(ClaimTypes.Role, "Admin"));
+
+    options.AddPolicy("Courier", policy =>
+        policy.RequireClaim(ClaimTypes.Role, "Courier"));
+
+    options.AddPolicy("Authenticated", policy =>
+        policy.RequireClaim(ClaimTypes.Role, "User", "Admin", "Courier"));
 });
 var app = builder.Build();
 
@@ -101,9 +154,13 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.RegisterBookingRoutes();
+app.RegisterBookingLifecycleRoutes();
 app.RegisterCategoriesRoutes();
 app.RegisterModelsRoutes();
 app.RegisterBikeRoutes();
+app.RegisterCourierRoutes();
+app.RegisterDeliveryRoutes();
+app.RegisterAddressRoutes();
 
 app.MapGrpcService<AuthGrpcService>();
 
@@ -111,6 +168,7 @@ using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<BikesBookingDbContext>();
     dbContext.Database.Migrate();
+    await CatalogSeeder.SeedAsync(dbContext);
 }
 
 app.MapPost("/auth/register", async (RegisterRequest request, AuthGrpcService grpcService) =>
@@ -121,7 +179,9 @@ app.MapPost("/auth/register", async (RegisterRequest request, AuthGrpcService gr
 
 app.MapPost("/auth/login", async (LoginRequest request, BikesBookingDbContext dbContext) =>
 {
-    var user = await dbContext.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+    var user = await dbContext.Users
+        .Include(u => u.Courier)
+        .FirstOrDefaultAsync(u => u.Email == request.Email);
     if (user == null)
     {
         return Results.Unauthorized();
@@ -140,7 +200,7 @@ app.MapPost("/auth/login", async (LoginRequest request, BikesBookingDbContext db
         [
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Email, user.Email),
-            new Claim(ClaimTypes.Role, user.Role ? "Admin" : "User")
+            new Claim(ClaimTypes.Role, user.Role.ToString())
         ]),
         Expires = DateTime.UtcNow.AddHours(2),
         SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
@@ -153,42 +213,11 @@ app.MapPost("/auth/login", async (LoginRequest request, BikesBookingDbContext db
     {
         token = tokenString,
         userId = user.Id,
-        username = user.Username
+        username = user.Username,
+        role = user.Role.ToString(),
+        courierApproved = user.Courier?.IsApproved ?? false
     });
 });
-// Webhook для получения уведомлений от Stripe
-app.MapPost("/stripe-webhook", async (HttpRequest request) =>
-{
-    var json = await new StreamReader(request.Body).ReadToEndAsync();
-    try
-    {
-        var stripeEvent = EventUtility.ConstructEvent(
-            json,
-            request.Headers["Stripe-Signature"],
-            builder.Configuration["Stripe:WebhookSecret"]
-        );
 
-        if (stripeEvent.Type == "payment_intent.succeeded")
-        {
-            var paymentIntent = stripeEvent.Data.Object as Stripe.PaymentIntent;
-            var bookingId = paymentIntent.Metadata["booking_id"];
 
-            using var scope = app.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<BikesBookingDbContext>();
-            var payment = await dbContext.Payments.FirstOrDefaultAsync(p => p.BookingId == int.Parse(bookingId));
-            if (payment != null)
-            {
-                payment.StripePaymentIntentId = paymentIntent.Id;
-                await dbContext.SaveChangesAsync();
-            }
-        }
-        return Results.Ok();
-    }
-    catch (Exception ex)
-    {
-        // Вместо просто BadRequest, покажи реальный текст ошибки
-        Console.WriteLine($"❌ Webhook error: {ex.Message}");
-        return Results.BadRequest($"Webhook error: {ex.Message}");
-    }
-});
 app.Run();

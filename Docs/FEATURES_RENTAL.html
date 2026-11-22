@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ru" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
+<head>
+<meta charset="utf-8">
+<title>Bikebooking — доставка, аренда, чеки и фото</title>
+<style>
+  @page { size: A4; margin: 2cm 1.7cm 2cm 1.7cm; }
+  body { font-family: Calibri, Arial, sans-serif; font-size: 10.5pt; color: #171717; line-height: 1.45; }
+  h1 { font-size: 26pt; line-height: 1.1; margin: 0 0 6pt 0; letter-spacing: -0.5pt; }
+  h2 { font-size: 15pt; margin: 20pt 0 8pt 0; padding-bottom: 3pt; border-bottom: 1.5pt solid #aee63a; page-break-after: avoid; }
+  h3 { font-size: 12pt; margin: 14pt 0 5pt 0; page-break-after: avoid; }
+  p { margin: 5pt 0; }
+  ul, ol { margin: 5pt 0 5pt 18pt; padding: 0; }
+  li { margin: 2pt 0; }
+  table { border-collapse: collapse; width: 100%; margin: 8pt 0 12pt 0; font-size: 9pt; page-break-inside: auto; }
+  th { background: #f2f4ec; text-align: left; font-weight: bold; }
+  th, td { border: 0.75pt solid #c9cdc0; padding: 4.5pt 5.5pt; vertical-align: top; }
+  tr { page-break-inside: avoid; }
+  code { font-family: Consolas, "Courier New", monospace; background: #f3f4ef; padding: 0.5pt 2.5pt; font-size: 8.8pt; }
+  pre { font-family: Consolas, "Courier New", monospace; background: #f7f8f3; border: 0.75pt solid #d9ddcf; padding: 7pt 9pt; font-size: 8.6pt; white-space: pre-wrap; margin: 6pt 0 10pt 0; }
+  .lead { font-size: 11.5pt; color: #444; margin: 4pt 0 14pt 0; }
+  .meta { color: #777; font-size: 9pt; margin-bottom: 18pt; }
+  .note { background: #f7fbe9; border-left: 3pt solid #aee63a; padding: 7pt 10pt; margin: 8pt 0; }
+  .warn { background: #fff6f2; border-left: 3pt solid #e8684c; padding: 7pt 10pt; margin: 8pt 0; }
+  .toc { border: 0.75pt solid #d9ddcf; background: #fafbf7; padding: 10pt 14pt; margin: 10pt 0 18pt 0; }
+  .toc ol { margin: 4pt 0 0 16pt; }
+  .small { font-size: 8.8pt; color: #666; }
+  .pb { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<h1>Bikebooking</h1>
+<p class="lead">Доставка мотоциклов, курьеры, фискальные чеки и фотофиксация аренды. Техническая документация: файл → код → как работает.</p>
+<p class="meta">Версия: ноябрь 2026 · Стек: .NET 9 Minimal API + EF Core/PostgreSQL, React 19 + Vite</p>
+
+<div class="toc">
+  <b>Содержание</b>
+  <ol>
+    <li>Обзор и границы функционала</li>
+    <li>Роли и доступ</li>
+    <li>Жизненный цикл аренды</li>
+    <li>Доставка и автоназначение курьера</li>
+    <li>Курьеры: регистрация, геолокация, смена</li>
+    <li>Фискальные чеки (эмуляция)</li>
+    <li>Фотофиксация выдачи и возврата</li>
+    <li>HTTP API</li>
+    <li>Конфигурация, Docker и хранение</li>
+    <li>Frontend: страницы и компоненты</li>
+    <li>Ручная проверка сценария</li>
+    <li>Ограничения и развитие</li>
+    <li>Приложение: карта файлов</li>
+  </ol>
+</div>
+
+<h2>1. Обзор</h2>
+<p>Система добавляет к прокату мотоциклов четыре связанных блока:</p>
+<ul>
+  <li><b>Доставка</b> — клиент выбирает адрес и окно; система сама считает тариф и назначает ближайшего свободного курьера.</li>
+  <li><b>Курьеры</b> — отдельная регистрация с одобрением админом, смена, геолокация из браузера, один активный заказ.</li>
+  <li><b>Чеки</b> — после оплаты создаётся эмулированный фискальный чек с позициями, ФН/ФД/ФП и QR.</li>
+  <li><b>Фото</b> — клиент фиксирует состояние мотоцикла при получении и возврате; минимум 4 фото на этап.</li>
+</ul>
+
+<p>Жизненный цикл одной аренды:</p>
+<pre>Создана → Оплачена → Выдана → Завершена
+                    ↘ Отменена
+
+Одновременно с бронью:
+  Dropoff (доставка)  — назначается курьеру ближе к окну
+  Pickup  (забор)     — создаётся сразу, назначается ближе к EndDate</pre>
+
+<h2>2. Роли и доступ</h2>
+<table>
+  <tr><th style="width:34%">Файл</th><th style="width:30%">Код</th><th>Как работает</th></tr>
+  <tr><td><code>Logic/UserRole.cs</code></td><td><code>enum UserRole { User, Admin, Courier }</code></td><td>Роль хранится в <code>User.Role</code> строкой. Раньше был <code>bool</code>, миграция перенесла старые значения: <code>true → Admin</code>, <code>false → User</code>.</td></tr>
+  <tr><td><code>Host/Program.cs</code></td><td>Политики <code>User</code>, <code>Admin</code>, <code>Courier</code>, <code>Authenticated</code></td><td>JWT содержит <code>ClaimTypes.Role</code>; политики ограничивают эндпоинты. Для фото добавлено чтение токена из query-параметра <code>access_token</code>.</td></tr>
+  <tr><td><code>Host/HttpUser.cs</code></td><td><code>HttpUser.Get(context)</code></td><td>Достаёт <code>UserId</code> и <code>UserRole</code> из claims и приводит к enum.</td></tr>
+  <tr><td><code>Host/ApprovedCourierFilter.cs</code></td><td><code>IEndpointFilter</code></td><td>Проверяет <code>Courier.IsApproved</code>: неодобренный курьер получает 403 на всех курьерских эндпоинтах.</td></tr>
+  <tr><td><code>Frontend/src/components/protectedRoute.tsx</code></td><td><code>allowedRoles</code></td><td>Скрывает страницы по роли на клиенте. Сервер всё равно проверяет права повторно.</td></tr>
+</table>
+
+<h2>3. Жизненный цикл аренды</h2>
+<table>
+  <tr><th style="width:34%">Файл</th><th style="width:30%">Код</th><th>Как работает</th></tr>
+  <tr><td><code>Logic/BookingStatus.cs</code></td><td><code>Created, Paid, HandedOver, Completed, Cancelled</code></td><td>Единый статус аренды.</td></tr>
+  <tr><td><code>Logic/Booking.cs</code></td><td><code>Status</code>, <code>HandedOverAt</code>, <code>ReturnedAt</code></td><td>Текущее состояние и время выдачи/возврата.</td></tr>
+  <tr><td><code>Services/PaymentService.cs</code></td><td><code>booking.Status = BookingStatus.Paid</code></td><td>Карточная оплата переводит бронь в <code>Paid</code> и создаёт чек.</td></tr>
+  <tr><td><code>Services/BookingService.cs</code></td><td>ветка <code>PaymentType == "Cash"</code></td><td>Наличные: создаётся <code>Payment</code> и чек сразу, бронь становится <code>Paid</code>.</td></tr>
+  <tr><td><code>Services/InspectionService.cs</code></td><td><code>Submit()</code></td><td><code>Paid → HandedOver</code> при подтверждении фото выдачи; <code>HandedOver → Completed</code> при возврате.</td></tr>
+  <tr><td><code>Persistence/Migrations/20261122161236</code></td><td>SQL</td><td>Старым броням с платежом проставляется <code>Paid</code>; если дата окончания прошла — <code>Completed</code>.</td></tr>
+</table>
+
+<div class="note"><b>Правила переходов.</b> Выдача — только из <code>Paid</code> и только если доставка (<code>Dropoff</code>) уже завершена курьером. Возврат — только из <code>HandedOver</code>. Для обоих этапов требуется минимум 4 фото.</div>
+
+<h2>4. Доставка и автоназначение</h2>
+<table>
+  <tr><th style="width:34%">Файл</th><th style="width:30%">Код</th><th>Как работает</th></tr>
+  <tr><td><code>Logic/Delivery.cs</code></td><td><code>Kind</code>, <code>Status</code>, <code>CourierId</code>, <code>ScheduledFrom/To</code></td><td>Одно задание — это либо <code>Dropoff</code>, либо <code>Pickup</code>. Статусы: <code>Pending → Assigned → EnRoute → Arrived → Completed</code>.</td></tr>
+  <tr><td><code>Services/DeliveryOptions.cs</code></td><td><code>ShopLatitude</code>, <code>BaseFee</code>, <code>PerKmRate</code>, <code>AssignmentLeadMinutes</code></td><td>Точка выдачи, тариф, радиус, за сколько минут до окна назначать курьера.</td></tr>
+  <tr><td><code>Services/GeoCalculator.cs</code></td><td><code>HaversineKm()</code></td><td>Расстояние между двумя координатами без внешних API.</td></tr>
+  <tr><td><code>Services/DeliveryService.cs</code></td><td><code>CalculateFee()</code></td><td><code>BaseFee + PerKmRate × км</code>. Если расстояние больше <code>MaxDistanceKm</code>, возвращается <code>WithinRange = false</code>.</td></tr>
+  <tr><td><code>Services/DeliveryService.cs</code></td><td><code>TryAssign()</code></td><td>Берёт только одобренных, свободных, с геоданными не старше 5 минут и без активного заказа. Сортирует по расстоянию до адреса.</td></tr>
+  <tr><td><code>Services/DeliveryService.cs</code></td><td><code>UpdateStatus()</code></td><td>Разрешает только последовательные переходы; при завершении освобождает курьера.</td></tr>
+  <tr><td><code>Services/DeliveryAssignmentBackgroundService.cs</code></td><td><code>ExecuteAsync()</code></td><td>Каждые 30 секунд назначает подходящие заказы, помечает просроченные <code>Failed</code>, снимает курьеров с устаревшей геолокацией в <code>Offline</code>.</td></tr>
+  <tr><td><code>Services/BookingService.cs</code></td><td><code>CreateBooking()</code></td><td>При доставке создаёт два задания: <code>Dropoff</code> на выбранное окно и <code>Pickup</code> в <code>EndDate + PickupWindowHours</code>.</td></tr>
+  <tr><td><code>Host/DeliveryRoutesExtensions.cs</code></td><td><code>/deliveries/*</code></td><td>Список по роли, смена статуса, ручное назначение админом, тариф <code>fee-preview</code>.</td></tr>
+</table>
+
+<p>Логика выбора курьера:</p>
+<pre>candidates = couriers
+  .Where(c =&gt; c.IsApproved
+      &amp;&amp; c.Status == Available
+      &amp;&amp; c.LastLocationAt &gt;= now - 5 min
+      &amp;&amp; c has no active delivery)
+
+best = candidates.MinBy(c =&gt; Haversine(delivery, c))
+
+delivery.CourierId = best.Id
+delivery.Status     = Assigned
+best.Status         = Busy</pre>
+
+<p>База дополнительно защищена частичным уникальным индексом: у курьера не может быть двух активных доставок.</p>
+
+<h2>5. Курьеры</h2>
+<table>
+  <tr><th style="width:34%">Файл</th><th style="width:30%">Код</th><th>Как работает</th></tr>
+  <tr><td><code>Logic/Courier.cs</code></td><td><code>Status</code>, <code>Latitude/Longitude</code>, <code>IsApproved</code></td><td>Профиль курьера, привязанный 1:1 к <code>User</code>.</td></tr>
+  <tr><td><code>Services/CourierService.cs</code></td><td><code>Register()</code></td><td>Создаёт пользователя с ролью <code>Courier</code> и профиль с <code>IsApproved = false</code>.</td></tr>
+  <tr><td><code>Services/CourierService.cs</code></td><td><code>Approve()</code> / <code>Reject()</code></td><td>Одобрение включает доступ; отказ удаляет профиль и возвращает роль <code>User</code>.</td></tr>
+  <tr><td><code>Services/CourierService.cs</code></td><td><code>UpdateLocation()</code></td><td>Принимает координаты только от одобренного курьера, пишет <code>LastLocationAt</code>.</td></tr>
+  <tr><td><code>Host/CourierRoutesExtensions.cs</code></td><td><code>/couriers/*</code></td><td>Регистрация, <code>/me</code>, геолокация, статус, админские approve/reject.</td></tr>
+  <tr><td><code>Frontend/src/courierPage.tsx</code></td><td><code>watchPosition</code>, интервал 20 с</td><td>Пока курьер «на линии», браузер передаёт координаты; при ошибке доступа показывается подсказка.</td></tr>
+</table>
+
+<h2>6. Фискальные чеки (эмуляция)</h2>
+<table>
+  <tr><th style="width:34%">Файл</th><th style="width:30%">Код</th><th>Как работает</th></tr>
+  <tr><td><code>Logic/Receipt.cs</code></td><td><code>Status</code>, <code>Fiscal*</code>, <code>QrPayload</code>, <code>ItemsJson</code></td><td>Хранит чек, привязанный к платежу и брони.</td></tr>
+  <tr><td><code>Services/EmulatedReceiptService.cs</code></td><td><code>RegisterForPayment()</code></td><td>Создаёт чек после оплаты: аренда отдельной позицией, доставка — если была. Генерирует ФН/ФД/ФП и QR.</td></tr>
+  <tr><td><code>Services/EmulatedReceiptService.cs</code></td><td><code>Fill()</code></td><td>Сумма берётся из <code>Payment.Amount</code>, а не из запроса клиента.</td></tr>
+  <tr><td><code>Services/EmulatedReceiptService.cs</code></td><td><code>Retry()</code></td><td>Только админ. Пересоздаёт фискальные данные.</td></tr>
+  <tr><td><code>Host/BookingLifecycleRoutesExtensions.cs</code></td><td><code>GET /bookings/{id}/receipt</code></td><td>Отдаёт чек владельцу брони или админу.</td></tr>
+  <tr><td><code>Frontend/src/components/receiptCard.tsx</code></td><td><code>QRCodeSVG</code></td><td>Показывает позиции, итог, фискальные номера, QR и печать.</td></tr>
+</table>
+
+<p>Формат QR-строки:</p>
+<pre>t={yyyyMMddTHHmm}&amp;s={amount:0.00}&amp;fn={16 цифр}&amp;i={10 цифр}&amp;fp={10 цифр}&amp;n=1</pre>
+
+<div class="warn">Сейчас это эмуляция: реальные деньги не списываются, фискальные номера случайные. Для боевого режима реализуется <code>IFiscalService</code> под конкретную кассу (АТОЛ, Orange Data, ЮKassa и т.п.) без изменений в UI.</div>
+
+<h2>7. Фотофиксация</h2>
+<table>
+  <tr><th style="width:34%">Файл</th><th style="width:30%">Код</th><th>Как работает</th></tr>
+  <tr><td><code>Logic/BikeInspection.cs</code></td><td><code>Phase</code>, <code>Photos</code>, <code>Note</code></td><td>Одна фотосессия на этап: <code>Handover</code> или <code>Return</code>. Уникальность: <code>(BookingId, Phase)</code>.</td></tr>
+  <tr><td><code>Logic/BikeInspection.cs</code></td><td><code>InspectionPhoto</code></td><td>Путь, MIME, размер, SHA-256, порядок.</td></tr>
+  <tr><td><code>Services/InspectionService.cs</code></td><td><code>Upload()</code></td><td>Только владелец брони. Проверяет статус этапа, размер ≤ 10 МБ, тип по сигнатуре (JPEG/PNG/WebP), лимит 12 фото. Считает SHA-256.</td></tr>
+  <tr><td><code>Services/InspectionService.cs</code></td><td><code>Submit()</code></td><td>Требует ≥ 4 фото; для выдачи проверяет, что <code>Dropoff</code> завершён; меняет статус брони.</td></tr>
+  <tr><td><code>Services/InspectionService.cs</code></td><td><code>GetPhotoFile()</code></td><td>Доступ: владелец, назначенный курьер, админ. Остальные — 403.</td></tr>
+  <tr><td><code>Services/LocalFileStorage.cs</code></td><td><code>SaveAsync()</code></td><td>Пишет файл в <code>Storage:Root</code>, проверяет путь от выхода за пределы каталога.</td></tr>
+  <tr><td><code>Host/BookingLifecycleRoutesExtensions.cs</code></td><td><code>/bookings/{id}/inspections/*</code></td><td>Загрузка (multipart), удаление, подтверждение, список. Отдача фото — <code>/photos/{id}/file</code>.</td></tr>
+  <tr><td><code>Frontend/src/components/inspectionPanel.tsx</code></td><td><code>compressImage()</code>, <code>fetch</code></td><td>Сжимает до 1600 px, грузит FormData нативным fetch (axios ставил JSON Content-Type и ломал multipart).</td></tr>
+  <tr><td><code>Frontend/src/myBookingsPage.tsx</code></td><td>кнопки «Получил / Вернул»</td><td>Показывает прогресс фото, статус и чек; без 4 фото подтверждение недоступно.</td></tr>
+  <tr><td><code>Frontend/src/adminRentalsPage.tsx</code></td><td>—</td><td>Админ видит фото «до/после», чек и может повторить фискализацию.</td></tr>
+</table>
+
+<p>Путь файла:</p>
+<pre>uploads/bookings/{bookingId}/{handover|return}/{guid}.jpg</pre>
+
+<h2>8. HTTP API</h2>
+<table>
+  <tr><th style="width:14%">Метод</th><th style="width:38%">Путь</th><th>Доступ / назначение</th></tr>
+  <tr><td>GET</td><td><code>/bookings</code></td><td>Клиент — свои, курьер — назначенные, админ — все.</td></tr>
+  <tr><td>GET</td><td><code>/bookings/{id}/receipt</code></td><td>Владелец или админ.</td></tr>
+  <tr><td>GET</td><td><code>/bookings/{id}/inspections</code></td><td>Владелец, курьер по заказу, админ.</td></tr>
+  <tr><td>POST</td><td><code>/bookings/{id}/inspections/{phase}/photos</code></td><td>Только владелец, multipart.</td></tr>
+  <tr><td>DELETE</td><td><code>/bookings/{id}/inspections/{phase}/photos/{photoId}</code></td><td>Только владелец и до подтверждения этапа.</td></tr>
+  <tr><td>POST</td><td><code>/bookings/{id}/inspections/{phase}/submit</code></td><td>Только владелец, ≥ 4 фото.</td></tr>
+  <tr><td>GET</td><td><code>/photos/{id}/file?access_token=…</code></td><td>Владелец, назначенный курьер, админ.</td></tr>
+  <tr><td>POST</td><td><code>/receipts/{id}/retry</code></td><td>Админ.</td></tr>
+  <tr><td>GET</td><td><code>/deliveries</code>, <code>/deliveries/{id}</code></td><td>По роли.</td></tr>
+  <tr><td>POST</td><td><code>/deliveries/{id}/status</code></td><td>Назначенный курьер или админ.</td></tr>
+  <tr><td>POST</td><td><code>/deliveries/{id}/assign</code></td><td>Админ, ручное назначение.</td></tr>
+  <tr><td>GET</td><td><code>/deliveries/options</code>, <code>/deliveries/fee-preview</code></td><td>Точка выдачи, тариф, центр карты.</td></tr>
+  <tr><td>GET</td><td><code>/addresses/search?q=</code></td><td>Прокси Nominatim с кэшем и лимитом 1 запрос/сек.</td></tr>
+</table>
+
+<h2>9. Конфигурация, Docker и хранение</h2>
+<p><code>Backend/BikeBooking/BikeBooking.Host/appsettings.json</code>:</p>
+<pre>"Delivery": {
+  "ShopLatitude": 54.9974705,
+  "ShopLongitude": 73.3543775,
+  "BaseFee": 300,
+  "PerKmRate": 50,
+  "MaxDistanceKm": 30,
+  "AssignmentLeadMinutes": 60,
+  "PickupWindowHours": 2
+},
+"Storage": {
+  "Root": "uploads",
+  "MaxFileBytes": 10485760,
+  "MaxPhotosPerPhase": 12,
+  "MinPhotosPerPhase": 4
+}</pre>
+
+<table>
+  <tr><th style="width:38%">Файл</th><th>Как работает</th></tr>
+  <tr><td><code>Docker/docker-compose.yml</code></td><td>Монтирует volume <code>bikes-booking-uploads</code> в <code>/app/uploads</code>; переменная <code>Storage__Root=/app/uploads</code>.</td></tr>
+  <tr><td><code>Backend/BikeBooking/Dockerfile</code></td><td>Создаёт <code>/app/uploads</code> и делает <code>chown</code> пользователю <code>app</code>. Без этого приложение не может писать фото.</td></tr>
+  <tr><td><code>Services/LocalFileStorage.cs</code></td><td>Реализация <code>IFileStorage</code>. Позже заменяется на S3/MinIO без изменения остальных сервисов.</td></tr>
+</table>
+
+<h2>10. Frontend</h2>
+<table>
+  <tr><th style="width:34%">Файл</th><th>Что делает</th></tr>
+  <tr><td><code>src/App.tsx</code></td><td>Маршруты: <code>/my-bookings</code>, <code>/my-deliveries</code>, <code>/courier</code>, <code>/admin/deliveries</code>, <code>/admin/rentals</code>. Маршрут <code>/ide</code> убран, стоит редирект.</td></tr>
+  <tr><td><code>src/components/appLayout.tsx</code></td><td>Общий каркас: меню и футер.</td></tr>
+  <tr><td><code>src/components/appMenu.tsx</code></td><td>Меню-шторка по кнопке; ссылки зависят от роли. «IDE / песочница» удалена.</td></tr>
+  <tr><td><code>src/components/booking.tsx</code></td><td>Выбор доставки/самовывоза, карта, автокомплит адреса, расчёт цены.</td></tr>
+  <tr><td><code>src/paymentPage.tsx</code></td><td>Эмуляция оплаты; после успеха ведёт в «Мои аренды».</td></tr>
+  <tr><td><code>src/myBookingsPage.tsx</code></td><td>Статус аренды, фото «до/после», действия выдачи и возврата, чек.</td></tr>
+  <tr><td><code>src/components/inspectionPanel.tsx</code></td><td>Загрузка фото с камеры, сжатие, удаление, подтверждение.</td></tr>
+  <tr><td><code>src/components/receiptCard.tsx</code></td><td>Чек с QR и печатью.</td></tr>
+  <tr><td><code>src/components/deliveryMap.tsx</code></td><td>Leaflet + OpenStreetMap: магазин, курьеры, адреса.</td></tr>
+  <tr><td><code>src/myDeliveriesPage.tsx</code></td><td>Статусы доставки и забора.</td></tr>
+  <tr><td><code>src/courierPage.tsx</code></td><td>Смена, геолокация, активный заказ, история.</td></tr>
+  <tr><td><code>src/adminDeliveriesPage.tsx</code></td><td>Карта, курьеры, ручное назначение, одобрение заявок.</td></tr>
+  <tr><td><code>src/adminRentalsPage.tsx</code></td><td>Аренды, чеки, фото «до/после».</td></tr>
+  <tr><td><code>src/lib/booking.ts</code></td><td>Типы, статусы, <code>photoSrc()</code> с токеном, форматирование.</td></tr>
+  <tr><td><code>src/lib/delivery.ts</code></td><td>Типы доставки, статусы, деньги, даты в часовом поясе Омска.</td></tr>
+</table>
+
+<h2>11. Ручная проверка</h2>
+<ol>
+  <li>Оплатить бронь — статус <code>Paid</code>, появился чек.</li>
+  <li>Открыть «Мои аренды» → «Получил мотоцикл».</li>
+  <li>Загрузить 4 фото → «Подтвердить получение» — статус <code>HandedOver</code>.</li>
+  <li>«Вернул мотоцикл» → 4 фото → <code>Completed</code>.</li>
+  <li>Открыть чек: позиции, ФН/ФД/ФП, QR, печать.</li>
+  <li>Админ → «Аренды»: фото «до/после», чек, повтор фискализации.</li>
+  <li>Курьер → «Мои доставки»: <code>Назначен → В пути → На месте → Доставлено</code>.</li>
+</ol>
+<p>Для сценария с доставкой: пока курьер не завершил <code>Dropoff</code>, кнопка «Получил мотоцикл» у клиента заблокирована с текстом «Ждём доставку».</p>
+
+<h2>12. Ограничения</h2>
+<ul>
+  <li>Фискализация эмулируется; реальная касса подключается через <code>IReceiptService</code>.</li>
+  <li>Фото загружает только клиент; курьер и админ — только просмотр.</li>
+  <li>Интерфейс курьера пока не показывает фото клиента, хотя API это разрешает.</li>
+  <li>Курьер может завершить забор независимо от подтверждения возврата клиентом.</li>
+  <li>Нет push-уведомлений о назначении и прибытии курьера.</li>
+</ul>
+
+<h2 class="pb">13. Приложение: карта файлов</h2>
+<table>
+  <tr><th style="width:52%">Файл</th><th>Роль</th></tr>
+  <tr><td><code>Backend/.../Logic/BookingStatus.cs</code></td><td>Статусы аренды</td></tr>
+  <tr><td><code>Backend/.../Logic/Booking.cs</code></td><td>Бронь, статус, выдана/возвращена, связи</td></tr>
+  <tr><td><code>Backend/.../Logic/Delivery.cs</code></td><td>Доставка/забор</td></tr>
+  <tr><td><code>Backend/.../Logic/Courier.cs</code></td><td>Курьер и геолокация</td></tr>
+  <tr><td><code>Backend/.../Logic/Receipt.cs</code></td><td>Фискальный чек</td></tr>
+  <tr><td><code>Backend/.../Logic/BikeInspection.cs</code></td><td>Фотосессия и фото</td></tr>
+  <tr><td><code>Backend/.../Services/DeliveryService.cs</code></td><td>Тариф, назначение, статусы</td></tr>
+  <tr><td><code>Backend/.../Services/DeliveryAssignmentBackgroundService.cs</code></td><td>Фоновое назначение</td></tr>
+  <tr><td><code>Backend/.../Services/CourierService.cs</code></td><td>Регистрация, одобрение, гео</td></tr>
+  <tr><td><code>Backend/.../Services/EmulatedReceiptService.cs</code></td><td>Эмуляция чеков</td></tr>
+  <tr><td><code>Backend/.../Services/InspectionService.cs</code></td><td>Фото, права, переходы</td></tr>
+  <tr><td><code>Backend/.../Services/LocalFileStorage.cs</code></td><td>Хранение файлов</td></tr>
+  <tr><td><code>Backend/.../Services/PaymentService.cs</code></td><td>Оплата, чек, назначение</td></tr>
+  <tr><td><code>Backend/.../Services/BookingService.cs</code></td><td>Создание брони, список аренд</td></tr>
+  <tr><td><code>Backend/.../Host/BookingLifecycleRoutesExtensions.cs</code></td><td>API аренд, чеков, фото</td></tr>
+  <tr><td><code>Backend/.../Host/CourierRoutesExtensions.cs</code></td><td>API курьеров</td></tr>
+  <tr><td><code>Backend/.../Host/DeliveryRoutesExtensions.cs</code></td><td>API доставки</td></tr>
+  <tr><td><code>Backend/.../persistence/Migrations/*</code></td><td>Схема БД</td></tr>
+  <tr><td><code>Frontend/src/myBookingsPage.tsx</code></td><td>Экран аренд</td></tr>
+  <tr><td><code>Frontend/src/components/inspectionPanel.tsx</code></td><td>Фото выдачи/возврата</td></tr>
+  <tr><td><code>Frontend/src/components/receiptCard.tsx</code></td><td>Чек</td></tr>
+  <tr><td><code>Frontend/src/courierPage.tsx</code></td><td>Кабинет курьера</td></tr>
+  <tr><td><code>Frontend/src/adminRentalsPage.tsx</code></td><td>Админ: аренды и чеки</td></tr>
+</table>
+
+<p class="small">Документ подготовлен по актуальному состоянию кода. Пути указаны относительно каталога репозитория.</p>
+
+</body>
+</html>

@@ -46,6 +46,14 @@ export default function Header() {
           >
             Мотоциклы
           </NavLink>
+          <NavLink
+            to="/ide"
+            className={({ isActive }) =>
+              `rounded-sm p-1 text-sm font-semibold text-slate-900 border-b-2 border-emerald-600 pb-1 ${isActive ? "bg-emerald-100" : ""}`
+            }
+          >
+            IDE
+          </NavLink>
         </div>
 
         <div className="flex items-center gap-3 shrink-0">

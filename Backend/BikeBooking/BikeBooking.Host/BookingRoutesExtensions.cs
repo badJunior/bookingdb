@@ -8,13 +8,12 @@ namespace BikeBooking.Host
 {
     public static class BookingRoutesExtensions
     {
-
         public static void RegisterBookingRoutes(this WebApplication app)
         {
             var group = app.MapGroup("/booking");
+
             group.MapPost("/available-bikes", async (GetAvailableBikesRequest request, IBookingService bookingService) =>
             {
-
                 var bikesList = await bookingService.GetAvailableBikes(request.StartDate, request.EndDate);
 
                 return Results.Ok(new GetAvailableBikesResponse(
@@ -25,76 +24,67 @@ namespace BikeBooking.Host
                         bikeDto.year,
                         bikeDto.category,
                         bikeDto.power,
-                        bikeDto.price
+                        bikeDto.price,
+                        bikeDto.imageUrl
                     )).ToArray()
                 ));
             }).Produces<GetAvailableBikesResponse>();
-            group.MapPost("/bookings", async (CreateBookingRequest request, IBookingService bookingService) =>
+
+            group.MapPost("/bookings", async (CreateBookingRequest request, IBookingService bookingService, HttpContext http) =>
             {
+                var (userId, _) = HttpUser.Get(http);
+
                 var serviceDto = new CreateBookingServiceDto(
                     request.BikeId,
                     request.StartDate,
                     request.EndDate,
                     request.ClientName,
                     request.PaymentType,
-                    request.StripePaymentIntentId
-
+                    request.StripePaymentIntentId,
+                    userId == 0 ? null : userId,
+                    request.Delivery is null
+                        ? null
+                        : new BookingDeliveryDto(
+                            request.Delivery.AddressLine,
+                            request.Delivery.Latitude,
+                            request.Delivery.Longitude,
+                            request.Delivery.ScheduledFrom,
+                            request.Delivery.ScheduledTo)
                 );
 
-                var bookingResult = await bookingService.CreateBooking(serviceDto);
+                try
+                {
+                    var bookingResult = await bookingService.CreateBooking(serviceDto);
 
-                return Results.Ok(new CreateBookingResponseDto(
-                    bookingResult.Id,
-                    bookingResult.BikeId,
-                    bookingResult.StartDate,
-                    bookingResult.EndDate,
-                    bookingResult.ClientName,
-                    bookingResult.TotalPrice,
-                    bookingResult.PaymentDate,
-                    bookingResult.PaymentType
-                ));
+                    return Results.Ok(new CreateBookingResponseDto(
+                        bookingResult.Id,
+                        bookingResult.BikeId,
+                        bookingResult.StartDate,
+                        bookingResult.EndDate,
+                        bookingResult.ClientName,
+                        bookingResult.RentalPrice,
+                        bookingResult.DeliveryFee,
+                        bookingResult.TotalPrice,
+                        bookingResult.PaymentDate,
+                        bookingResult.PaymentType,
+                        bookingResult.Dropoff,
+                        bookingResult.Pickup,
+                        bookingResult.Status
+                    ));
+                }
+                catch (Exception ex)
+                {
+                    return ApiResults.FromException(ex);
+                }
             }).Produces<CreateBookingResponseDto>(200).RequireAuthorization("User");
 
-            app.MapPost("/create-checkout-session", async (CreateCheckoutRequest request, IStripeClient stripeClient) =>
+            // ✅ Исправленный эндпоинт
+            group.MapPost("/create-emulated-payment", async (CreateEmulatedPaymentRequest request, IPaymentService paymentService) =>
             {
-                var options = new SessionCreateOptions
-                {
-                    PaymentMethodTypes = new List<string> { "card" },
-                    LineItems = new List<SessionLineItemOptions>
-        {
-            new SessionLineItemOptions
-            {
-                PriceData = new SessionLineItemPriceDataOptions
-                {
-                    UnitAmount = (long)request.TotalPrice,
-                    Currency = "usd",
-                    ProductData = new SessionLineItemPriceDataProductDataOptions
-                    {
-                        Name = "Аренда мотоцикла",
-                    },
-                },
-                Quantity = 1,
-            },
-        },
-                    Mode = "payment",
-                    SuccessUrl = "http://localhost:5173/booking/available-bikes",
-                    CancelUrl = "http://localhost:5173/booking/bookings",
-                    Metadata = new Dictionary<string, string>
-        {
-            { "booking_id", request.BookingId.ToString() }
-        },
-                };
-                var service = new SessionService(stripeClient);
-                var session = await service.CreateAsync(options);
-
-                return Results.Ok(new { url = session.Url });
+                var result = await paymentService.CreateEmulatedPayment(request);
+                return Results.Ok(result);
             });
-
-
-
-
         }
-
 
         public static void RegisterCategoriesRoutes(this WebApplication app)
         {
@@ -112,6 +102,7 @@ namespace BikeBooking.Host
                 return Results.Ok(new CreateCategoryResponse());
             }).Produces<CreateCategoryResponse>().RequireAuthorization("Admin");
         }
+
         public static void RegisterModelsRoutes(this WebApplication app)
         {
             var group = app.MapGroup("/models");
@@ -124,31 +115,28 @@ namespace BikeBooking.Host
             {
                 await bikesService.CreateModel(new CreateModelDto(request.Power, request.StartYear, request.EndYear, request.Name, request.CategoryId));
                 return Results.Ok(new CreateModelResponse());
-            }).Produces<CreateModelResponse>().RequireAuthorization("Admin"); ;
-
+            }).Produces<CreateModelResponse>().RequireAuthorization("Admin");
         }
+
         public static void RegisterBikeRoutes(this WebApplication app)
         {
             var group = app.MapGroup("/bikes");
             group.MapPost("/", async (CreateBikeRequest request, IBikesService bikesService) =>
             {
-                await bikesService.CreateBike(new CreateBikeDto(request.ModelId, request.Year, request.Price));
+                await bikesService.CreateBike(new CreateBikeDto(request.ModelId, request.Year, request.Price, request.ImageUrl));
                 return Results.Ok(new CreateCategoryResponse());
             }).Produces<CreateCategoryResponse>().RequireAuthorization("Admin");
             group.MapGet("/", async (IBikesService bikesService) =>
             {
                 var bikesList = await bikesService.GetBikes();
-                return Results.Ok(new GetAllBikesResponse(bikesList.Select((BikesDto bikesDto) => new AllBike(bikesDto.Id, bikesDto.Model, bikesDto.Year, bikesDto.Category, bikesDto.Power, bikesDto.Price)).ToArray()));
+                return Results.Ok(new GetAllBikesResponse(bikesList.Select((BikesDto bikesDto) => new AllBike(bikesDto.Id, bikesDto.Model, bikesDto.Year, bikesDto.Category, bikesDto.Power, bikesDto.Price, bikesDto.ImageUrl)).ToArray()));
             }).Produces<GetAllBikesResponse>();
-
-
         }
-
     }
 
     public record GetAvailableBikesRequest(DateTime? StartDate, DateTime? EndDate);
     public record GetAvailableBikesResponse(AvailableBike[] AvailableBikes);
-    public record AvailableBike(int Id, string Model, bool Availability, int Year, string Category, int Power, int price);
+    public record AvailableBike(int Id, string Model, bool Availability, int Year, string Category, int Power, int price, string? ImageUrl = null);
     public record GetAllCategoriesRequest();
     public record GetAllCategoriesResponse(AllCategory[] AllCategories);
     public record AllCategory(int Id, string Name);
@@ -159,12 +147,13 @@ namespace BikeBooking.Host
     public record AllModels(int Id, int Power, int StartYear, int? EndYear, string Name, int CategoryId, string CategoryName);
     public record CreateModelRequest(int Power, int StartYear, int? EndYear, string Name, int CategoryId);
     public record CreateModelResponse();
-    public record CreateBikeRequest(int ModelId, int Year, int Price);
+    public record CreateBikeRequest(int ModelId, int Year, int Price, string? ImageUrl = null);
     public record CreayeBikeRespoonse();
 }
+
 public record GetAllBikesRequest();
 public record GetAllBikesResponse(AllBike[] AllBikes);
-public record AllBike(int Id, string Model, int Year, string Category, int Power, int price);
+public record AllBike(int Id, string Model, int Year, string Category, int Power, int price, string? ImageUrl = null);
 public record UpdateBike(int Id, bool Availability);
 public record UpdateAllBikesResponse();
 public record UpdateAllBikesRequest(UpdateBike[] UpdateBikes);
@@ -177,15 +166,14 @@ public record CreateBookingRequest(
     DateTime EndDate,
     string ClientName,
     string PaymentType,
-    string? StripePaymentIntentId
+    string? StripePaymentIntentId = null,
+    BookingDeliveryRequest? Delivery = null
 );
 
-
-public record CreateCheckoutRequest(
-       int BikeId,
-       DateTime StartDate,
-       DateTime EndDate,
-       string ClientName,
-       decimal TotalPrice,
-       int BookingId
-   );
+public record BookingDeliveryRequest(
+    string AddressLine,
+    double Latitude,
+    double Longitude,
+    DateTime ScheduledFrom,
+    DateTime ScheduledTo
+);

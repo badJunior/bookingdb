@@ -26,7 +26,7 @@ namespace BikeBooking.Services
             }
 
             var newModel = await _context.FindAsync<Logic.Model>(newBikeData.modelId);
-            _context.Bikes.Add(new Logic.Bike() { Model = newModel, Year = newBikeData.year, Price = newBikeData.price });
+            _context.Bikes.Add(new Logic.Bike() { Model = newModel, Year = newBikeData.year, Price = newBikeData.price, ImageUrl = newBikeData.imageUrl });
             await _context.SaveChangesAsync();
 
 
@@ -73,7 +73,7 @@ namespace BikeBooking.Services
            .Include(b => b.Model)
            .ThenInclude(m => m.Category)
            .ToArrayAsync();
-            return bikes.Select(bike => new BikesDto(bike.Id, bike.Year, bike.Model.Category.Name, bike.Model.Power, bike.Model.Name, bike.Price)).ToArray();
+            return bikes.Select(bike => new BikesDto(bike.Id, bike.Year, bike.Model.Category.Name, bike.Model.Power, bike.Model.Name, bike.Price, bike.ImageUrl)).ToArray();
         }
 
         public async Task<СategoriesBikesDto[]> GetCategories()

@@ -7,6 +7,10 @@ services:
     ports:
       - "9080:80"
       - "50051:50051"
+    environment:
+      - Storage__Root=/app/uploads
+    volumes:
+      - bikes-booking-uploads:/app/uploads
     depends_on:
       - postgres
 
@@ -47,3 +51,4 @@ services:
 volumes:
   bikes-booking-pgadmin:
   bikes-booking-postgres:
+  bikes-booking-uploads:

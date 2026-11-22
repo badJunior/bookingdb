@@ -5,24 +5,31 @@ type RoleContextType = {
   email: string;
   role: string;
   setRole: (role: string) => void;
+  refresh: () => void;
 };
 
 const RoleContext = createContext<RoleContextType | undefined>(undefined);
 
 export function RoleProvider({ children }: { children: ReactNode }) {
-  const [userData, setUserData] = useState(() => {
-    return {
+  const [userData, setUserData] = useState(() => ({
+    username: localStorage.getItem("username") || "Гость",
+    email: localStorage.getItem("email") || "",
+    role: localStorage.getItem("role") || "User",
+  }));
+
+  const setRole = (newRole: string) => {
+    setUserData((previous) => {
+      const updated = { ...previous, role: newRole };
+      localStorage.setItem("role", newRole);
+      return updated;
+    });
+  };
+
+  const refresh = () => {
+    setUserData({
       username: localStorage.getItem("username") || "Гость",
       email: localStorage.getItem("email") || "",
       role: localStorage.getItem("role") || "User",
-    };
-  });
-
-  const setRole = (newRole: string) => {
-    setUserData((prev) => {
-      const updated = { ...prev, role: newRole };
-      localStorage.setItem("role", newRole);
-      return updated;
     });
   };
 
@@ -33,6 +40,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         email: userData.email,
         role: userData.role,
         setRole,
+        refresh,
       }}
     >
       {children}

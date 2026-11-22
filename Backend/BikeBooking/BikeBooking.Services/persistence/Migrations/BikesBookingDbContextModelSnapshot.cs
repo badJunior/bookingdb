@@ -30,6 +30,9 @@ namespace BikeBooking.Services.persistence.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
+
                     b.Property<int>("ModelId")
                         .HasColumnType("integer");
 
@@ -44,6 +47,37 @@ namespace BikeBooking.Services.persistence.Migrations
                     b.HasIndex("ModelId");
 
                     b.ToTable("Bikes");
+                });
+
+            modelBuilder.Entity("BikeBooking.Logic.BikeInspection", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BookingId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("CreatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Phase")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookingId", "Phase")
+                        .IsUnique();
+
+                    b.ToTable("BikeInspections");
                 });
 
             modelBuilder.Entity("BikeBooking.Logic.Booking", b =>
@@ -61,15 +95,35 @@ namespace BikeBooking.Services.persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<decimal>("DeliveryFee")
+                        .HasColumnType("numeric");
+
                     b.Property<DateTime>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("HandedOverAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ReturnedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("StartDate")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("TotalPrice")
+                        .HasColumnType("numeric");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
                     b.HasIndex("BikeId");
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("Bookings");
                 });
@@ -89,6 +143,166 @@ namespace BikeBooking.Services.persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Categories");
+                });
+
+            modelBuilder.Entity("BikeBooking.Logic.Courier", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsApproved")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastLocationAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double?>("Latitude")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("Longitude")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Phone")
+                        .IsUnique();
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("Couriers");
+                });
+
+            modelBuilder.Entity("BikeBooking.Logic.Delivery", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AddressLine")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("AssignedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("BookingId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CourierId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double>("DistanceKm")
+                        .HasColumnType("double precision");
+
+                    b.Property<decimal>("Fee")
+                        .HasColumnType("numeric");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("Latitude")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("Longitude")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<DateTime>("ScheduledFrom")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ScheduledTo")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookingId");
+
+                    b.HasIndex("CourierId")
+                        .IsUnique()
+                        .HasFilter("\"Status\" IN (1, 2, 3)");
+
+                    b.ToTable("Deliveries");
+                });
+
+            modelBuilder.Entity("BikeBooking.Logic.InspectionPhoto", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("InspectionId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RelativePath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InspectionId");
+
+                    b.ToTable("InspectionPhotos");
                 });
 
             modelBuilder.Entity("BikeBooking.Logic.Model", b =>
@@ -154,6 +368,64 @@ namespace BikeBooking.Services.persistence.Migrations
                     b.ToTable("Payments");
                 });
 
+            modelBuilder.Entity("BikeBooking.Logic.Receipt", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("numeric");
+
+                    b.Property<int>("BookingId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FiscalDocumentNumber")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FiscalDriveNumber")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FiscalSign")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ItemsJson")
+                        .HasColumnType("text");
+
+                    b.Property<int>("PaymentId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("QrPayload")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("RegisteredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookingId");
+
+                    b.HasIndex("PaymentId")
+                        .IsUnique();
+
+                    b.ToTable("Receipts");
+                });
+
             modelBuilder.Entity("BikeBooking.Logic.User", b =>
                 {
                     b.Property<int>("Id")
@@ -170,14 +442,17 @@ namespace BikeBooking.Services.persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<bool>("Role")
-                        .HasColumnType("boolean");
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<string>("Username")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Email");
 
                     b.ToTable("Users");
                 });
@@ -193,6 +468,17 @@ namespace BikeBooking.Services.persistence.Migrations
                     b.Navigation("Model");
                 });
 
+            modelBuilder.Entity("BikeBooking.Logic.BikeInspection", b =>
+                {
+                    b.HasOne("BikeBooking.Logic.Booking", "Booking")
+                        .WithMany("Inspections")
+                        .HasForeignKey("BookingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Booking");
+                });
+
             modelBuilder.Entity("BikeBooking.Logic.Booking", b =>
                 {
                     b.HasOne("BikeBooking.Logic.Bike", "Bike")
@@ -201,7 +487,54 @@ namespace BikeBooking.Services.persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("BikeBooking.Logic.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.Navigation("Bike");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("BikeBooking.Logic.Courier", b =>
+                {
+                    b.HasOne("BikeBooking.Logic.User", "User")
+                        .WithOne("Courier")
+                        .HasForeignKey("BikeBooking.Logic.Courier", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("BikeBooking.Logic.Delivery", b =>
+                {
+                    b.HasOne("BikeBooking.Logic.Booking", "Booking")
+                        .WithMany("Deliveries")
+                        .HasForeignKey("BookingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("BikeBooking.Logic.Courier", "Courier")
+                        .WithMany()
+                        .HasForeignKey("CourierId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Booking");
+
+                    b.Navigation("Courier");
+                });
+
+            modelBuilder.Entity("BikeBooking.Logic.InspectionPhoto", b =>
+                {
+                    b.HasOne("BikeBooking.Logic.BikeInspection", "Inspection")
+                        .WithMany("Photos")
+                        .HasForeignKey("InspectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Inspection");
                 });
 
             modelBuilder.Entity("BikeBooking.Logic.Model", b =>
@@ -226,14 +559,49 @@ namespace BikeBooking.Services.persistence.Migrations
                     b.Navigation("Booking");
                 });
 
+            modelBuilder.Entity("BikeBooking.Logic.Receipt", b =>
+                {
+                    b.HasOne("BikeBooking.Logic.Booking", "Booking")
+                        .WithMany("Receipts")
+                        .HasForeignKey("BookingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("BikeBooking.Logic.Payment", "Payment")
+                        .WithMany()
+                        .HasForeignKey("PaymentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Booking");
+
+                    b.Navigation("Payment");
+                });
+
             modelBuilder.Entity("BikeBooking.Logic.Bike", b =>
                 {
                     b.Navigation("Bookings");
                 });
 
+            modelBuilder.Entity("BikeBooking.Logic.BikeInspection", b =>
+                {
+                    b.Navigation("Photos");
+                });
+
             modelBuilder.Entity("BikeBooking.Logic.Booking", b =>
                 {
+                    b.Navigation("Deliveries");
+
+                    b.Navigation("Inspections");
+
                     b.Navigation("Payment");
+
+                    b.Navigation("Receipts");
+                });
+
+            modelBuilder.Entity("BikeBooking.Logic.User", b =>
+                {
+                    b.Navigation("Courier");
                 });
 #pragma warning restore 612, 618
         }

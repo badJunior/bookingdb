@@ -1,210 +1,108 @@
-import { useMutation } from "@tanstack/react-query";
-import { httpClient } from "../../utils";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { CalendarRange, Layers, Plus, Zap } from "lucide-react";
+import { httpClient } from "../../utils";
 import useGetAllCategories from "../../useGetAllCategories";
 import useGetAllModels, { type ModelItem } from "../../useGetAllModels";
 import { useRole } from "../../components/roleContext";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
+import { PageShell } from "../../components/pageShell";
+import { Reveal } from "../../components/reveal";
 
 export default function ModelsPage() {
   const { role } = useRole();
   const { isPending, error, data } = useGetAllModels();
 
-  if (isPending) {
-    return (
-      <div className="flex items-center justify-center min-h-[calc(100vh-4rem)] bg-slate-50/60">
-        <div className="flex flex-col items-center gap-2">
-          <svg
-            className="animate-spin h-5 w-5 text-emerald-600"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            />
-          </svg>
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">
-            Загрузка каталога...
-          </span>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center min-h-[calc(100vh-4rem)] bg-slate-50/60 p-4">
-        <div className="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 p-3.5 rounded-xl">
-          Ошибка при загрузке: {(error as any).message}
-        </div>
-      </div>
-    );
-  }
-
-  const allModels = data.allModels;
+  const models = data?.allModels ?? [];
 
   return (
-    <div className="relative min-h-[calc(100vh-4rem)] bg-slate-50/60 overflow-hidden p-6">
-      {/* Декоративный фон */}
-      <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full bg-gradient-to-tr from-emerald-200/30 to-lime-200/20 blur-[100px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] rounded-full bg-gradient-to-br from-teal-200/20 to-emerald-100/30 blur-[100px] pointer-events-none" />
+    <PageShell
+      eyebrow="Каталог"
+      title="Модели"
+      description="Технические характеристики и годы выпуска. Модели используются при добавлении конкретных мотоциклов в парк."
+    >
+      {role === "Admin" && <AddModelForm />}
 
-      <div className="max-w-6xl mx-auto space-y-8 relative z-10">
-        {/* Форма Администратора */}
-        {role === "Admin" && <AddModelForm />}
-
-        {/* Заголовок секции */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-200/60 pb-4">
-            <div>
-              <h1 className="text-2xl font-black tracking-tight text-slate-800">
-                Каталог моделей
-              </h1>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Доступные серии и поколения мотоциклов
-              </p>
-            </div>
-            <span className="text-xs font-bold uppercase tracking-widest bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-1 rounded-full shadow-sm">
-              Моделей: {allModels.length}
-            </span>
-          </div>
-
-          {/* Сетка списка */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {allModels.map((model) => (
-              <ModelListItem key={model.id} modelItem={model} />
-            ))}
-          </div>
+      {isPending && (
+        <div className="rounded-2xl border border-border bg-card/60 p-16 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+          Загрузка...
         </div>
+      )}
+
+      {error && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
+          Не удалось загрузить модели.
+        </div>
+      )}
+
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        {models.map((model, index) => (
+          <ModelListItem key={model.id} modelItem={model} index={index} />
+        ))}
       </div>
-    </div>
+    </PageShell>
   );
 }
 
-export function ModelListItem(props: { modelItem: ModelItem }) {
-  const item = props.modelItem;
+export function ModelListItem({ modelItem, index = 0 }: { modelItem: ModelItem; index?: number }) {
   return (
-    <Card className="border-slate-200/80 bg-white/70 backdrop-blur-xl shadow-sm rounded-2xl p-5 hover:shadow-md hover:border-emerald-500/30 transition-all duration-300 flex flex-col justify-between group">
-      <div className="space-y-4">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="text-base font-bold text-slate-800 group-hover:text-emerald-600 transition-colors truncate">
-            {item.name || "Базовая спецификация"}
-          </h3>
-          <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md shrink-0">
-            ID {item.id}
+    <Reveal delay={index * 60}>
+      <article className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card p-6 transition-all duration-300 hover:-translate-y-1 hover:border-lime-deep">
+        <span className="pointer-events-none absolute -right-5 -top-8 font-mono text-[92px] font-black leading-none text-ink/[0.04] transition-colors group-hover:text-ink/[0.07]">
+          {String(index + 1).padStart(2, "0")}
+        </span>
+
+        <div className="relative flex items-start justify-between gap-2">
+          <h3 className="truncate text-xl font-black tracking-tight">{modelItem.name}</h3>
+          <span className="shrink-0 rounded-full bg-paper px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+            #{modelItem.id}
           </span>
         </div>
 
-        {/* Характеристики с иконками */}
-        <div className="grid grid-cols-2 gap-4 border-t border-b border-slate-100/80 py-3.5">
+        <div className="relative mt-5 grid grid-cols-2 gap-3 border-y border-border/60 py-4">
           <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 shrink-0">
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth="2"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"
-                />
-              </svg>
-            </div>
-            <div className="min-w-0">
-              <span className="block text-[10px] font-medium text-slate-400 uppercase tracking-wider">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-lime/25 text-forest">
+              <Zap className="h-4 w-4" />
+            </span>
+            <div>
+              <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
                 Мощность
-              </span>
-              <p className="font-bold text-slate-800 text-xs truncate">
-                {item.power} л.с.
               </p>
+              <p className="text-xs font-bold">{modelItem.power} л.с.</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-teal-50 text-teal-600 shrink-0">
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth="2"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581a1.44 1.44 0 002.036 0l4.319-4.319a1.44 1.44 0 000-2.036l-9.581-9.581a2.25 2.25 0 00-1.591-.659z"
-                />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M6 6h.008v.008H6V6z"
-                />
-              </svg>
-            </div>
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-clay/10 text-clay">
+              <Layers className="h-4 w-4" />
+            </span>
             <div className="min-w-0">
-              <span className="block text-[10px] font-medium text-slate-400 uppercase tracking-wider">
+              <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
                 Категория
-              </span>
-              <p className="font-bold text-slate-700 text-xs truncate">
-                {item.categoryName || `ID: ${item.categoryId}`}
+              </p>
+              <p className="truncate text-xs font-bold">
+                {modelItem.categoryName || `ID ${modelItem.categoryId}`}
               </p>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Нижняя плашка с датами */}
-      <div className="flex items-center justify-between text-xs mt-4 pt-1">
-        <div className="flex items-center gap-1.5 text-slate-400 font-medium">
-          <svg
-            className="w-3.5 h-3.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth="2"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"
-            />
-          </svg>
-          <span>Года выпуска:</span>
+        <div className="relative mt-4 flex items-center gap-2 text-[11px] text-muted-foreground">
+          <CalendarRange className="h-3.5 w-3.5" />
+          <span className="font-mono text-[9px] uppercase tracking-[0.14em]">Годы выпуска</span>
+          <span className="ml-auto rounded-lg bg-paper px-2 py-0.5 font-mono text-[10px] font-bold text-ink">
+            {modelItem.startYear} — {modelItem.endYear || "н.в."}
+          </span>
         </div>
-        <span className="font-bold text-slate-700 bg-slate-100/80 px-2.5 py-0.5 rounded-lg text-[11px]">
-          {item.startYear} — {item.endYear || "н.в."}
-        </span>
-      </div>
-    </Card>
+      </article>
+    </Reveal>
   );
 }
 
 export function ModelsList({ models }: { models: ModelItem[] }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-      {models.map((model) => (
-        <ModelListItem key={model.id} modelItem={model} />
+    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      {models.map((model, index) => (
+        <ModelListItem key={model.id} modelItem={model} index={index} />
       ))}
     </div>
   );
@@ -219,165 +117,125 @@ type NewModelData = {
 };
 
 function AddModelForm() {
-  const { role } = useRole();
-  const [newModelData, setNewModelData] = useState<NewModelData>({
+  const queryClient = useQueryClient();
+  const { isPending, isError, data } = useGetAllCategories();
+  const [form, setForm] = useState<NewModelData>({
     name: "",
     power: 0,
-    startYear: 0,
+    startYear: new Date().getFullYear(),
     endYear: 0,
   });
 
-  const isValid =
-    newModelData.name.trim() !== "" &&
-    newModelData.power > 0 &&
-    newModelData.categoryId != null;
-
-  const { isPending, isError, data } = useGetAllCategories();
-
   const addModel = useMutation({
-    mutationFn: (newModel: NewModelData) => {
-      return httpClient.post("/models", newModel);
-    },
+    mutationFn: (model: NewModelData) => httpClient.post("/models", model),
     onSuccess: () => {
-      window.location.reload();
+      queryClient.invalidateQueries({ queryKey: ["getAllModels"] });
+      setForm({ name: "", power: 0, startYear: new Date().getFullYear(), endYear: 0 });
     },
   });
 
+  const valid =
+    form.name.trim() !== "" && form.power > 0 && form.startYear > 0 && form.categoryId != null;
+
   return (
-    <Card className="border-slate-200/80 bg-white/70 backdrop-blur-xl shadow-xl shadow-slate-200/40 rounded-3xl overflow-hidden animate-in fade-in-50 slide-in-from-top-4 duration-300">
-      <CardHeader className="pb-4">
-        <CardTitle className="text-base font-bold text-slate-800">
-          Панель администратора
-        </CardTitle>
-        <CardDescription className="text-xs text-slate-500">
-          Добавление новой модели мотоцикла в систему
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          <div className="space-y-1.5">
-            <Label
-              htmlFor="m-name"
-              className="text-[11px] font-bold uppercase tracking-wider text-slate-500"
-            >
-              Название
-            </Label>
-            <Input
-              id="m-name"
-              type="text"
-              placeholder="CBR600RR"
-              value={newModelData.name}
-              onChange={(e) =>
-                setNewModelData((old) => ({ ...old, name: e.target.value }))
-              }
-              className="h-10 rounded-xl border-slate-200 bg-white/60 focus-visible:border-emerald-500 focus-visible:ring-emerald-500/10 text-xs transition-all"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label
-              htmlFor="m-power"
-              className="text-[11px] font-bold uppercase tracking-wider text-slate-500"
-            >
-              Мощность
-            </Label>
-            <Input
-              id="m-power"
-              type="number"
-              placeholder="л.с."
-              value={newModelData.power || ""}
-              onChange={(e) =>
-                setNewModelData((old) => ({
-                  ...old,
-                  power: Number(e.target.value),
-                }))
-              }
-              className="h-10 rounded-xl border-slate-200 bg-white/60 focus-visible:border-emerald-500 focus-visible:ring-emerald-500/10 text-xs transition-all"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label
-              htmlFor="m-start"
-              className="text-[11px] font-bold uppercase tracking-wider text-slate-500"
-            >
-              Старт выпуска
-            </Label>
-            <Input
-              id="m-start"
-              type="number"
-              placeholder="Год"
-              value={newModelData.startYear || ""}
-              onChange={(e) =>
-                setNewModelData((old) => ({
-                  ...old,
-                  startYear: Number(e.target.value),
-                }))
-              }
-              className="h-10 rounded-xl border-slate-200 bg-white/60 focus-visible:border-emerald-500 focus-visible:ring-emerald-500/10 text-xs transition-all"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label
-              htmlFor="m-end"
-              className="text-[11px] font-bold uppercase tracking-wider text-slate-500"
-            >
-              Конец выпуска
-            </Label>
-            <Input
-              id="m-end"
-              type="number"
-              placeholder="Год"
-              value={newModelData.endYear || ""}
-              onChange={(e) =>
-                setNewModelData((old) => ({
-                  ...old,
-                  endYear: Number(e.target.value),
-                }))
-              }
-              className="h-10 rounded-xl border-slate-200 bg-white/60 focus-visible:border-emerald-500 focus-visible:ring-emerald-500/10 text-xs transition-all"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label
-              htmlFor="m-cat"
-              className="text-[11px] font-bold uppercase tracking-wider text-slate-500"
-            >
-              Категория
-            </Label>
-            <select
-              id="m-cat"
-              value={newModelData.categoryId ?? ""}
-              onChange={(e) =>
-                setNewModelData((old) => ({
-                  ...old,
-                  categoryId:
-                    e.target.value !== "" ? Number(e.target.value) : undefined,
-                }))
-              }
-              disabled={isPending || isError}
-              className="w-full h-10 rounded-xl border border-slate-200 bg-white/60 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/10 transition-all disabled:opacity-50"
-            >
-              <option value="">Выберите категорию</option>
-              {data?.allCategories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              )) ?? []}
-            </select>
-          </div>
+    <section className="mb-8 rounded-2xl border border-border bg-card p-6">
+      <div className="flex items-center gap-3">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-lime/25 text-forest">
+          <Plus className="h-4 w-4" />
+        </span>
+        <div>
+          <h2 className="text-base font-bold tracking-tight">Новая модель</h2>
+          <p className="text-[11px] text-muted-foreground">Добавьте характеристики и категорию</p>
         </div>
+      </div>
 
-        <Button
-          onClick={() => role === "Admin" && addModel.mutate(newModelData)}
-          disabled={addModel.isPending || !isValid || role !== "Admin"}
-          className="w-full sm:w-auto px-6 h-10 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-500 to-lime-500 text-xs font-bold text-white shadow-md shadow-emerald-600/10 hover:opacity-95 active:scale-[0.98] disabled:opacity-40 border-0 cursor-pointer transition-all duration-200"
-        >
-          {addModel.isPending ? "Создание..." : "Создать модель"}
-        </Button>
-      </CardContent>
-    </Card>
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <Field label="Название">
+          <input
+            value={form.name}
+            onChange={(event) =>
+              setForm((previous) => ({ ...previous, name: event.target.value }))
+            }
+            placeholder="CBR600RR"
+            className="h-11 w-full rounded-2xl border border-border bg-paper/60 px-3 text-sm outline-none transition focus:border-lime-deep focus:ring-2 focus:ring-lime/40"
+          />
+        </Field>
+
+        <Field label="Мощность, л.с.">
+          <input
+            type="number"
+            value={form.power || ""}
+            onChange={(event) =>
+              setForm((previous) => ({ ...previous, power: Number(event.target.value) }))
+            }
+            className="h-11 w-full rounded-2xl border border-border bg-paper/60 px-3 text-sm outline-none transition focus:border-lime-deep focus:ring-2 focus:ring-lime/40"
+          />
+        </Field>
+
+        <Field label="Старт выпуска">
+          <input
+            type="number"
+            value={form.startYear || ""}
+            onChange={(event) =>
+              setForm((previous) => ({ ...previous, startYear: Number(event.target.value) }))
+            }
+            className="h-11 w-full rounded-2xl border border-border bg-paper/60 px-3 text-sm outline-none transition focus:border-lime-deep focus:ring-2 focus:ring-lime/40"
+          />
+        </Field>
+
+        <Field label="Конец выпуска">
+          <input
+            type="number"
+            value={form.endYear || ""}
+            onChange={(event) =>
+              setForm((previous) => ({ ...previous, endYear: Number(event.target.value) }))
+            }
+            placeholder="н.в."
+            className="h-11 w-full rounded-2xl border border-border bg-paper/60 px-3 text-sm outline-none transition focus:border-lime-deep focus:ring-2 focus:ring-lime/40"
+          />
+        </Field>
+
+        <Field label="Категория">
+          <select
+            value={form.categoryId ?? ""}
+            onChange={(event) =>
+              setForm((previous) => ({
+                ...previous,
+                categoryId: event.target.value !== "" ? Number(event.target.value) : undefined,
+              }))
+            }
+            disabled={isPending || isError}
+            className="h-11 w-full rounded-2xl border border-border bg-paper/60 px-3 text-sm outline-none disabled:opacity-50"
+          >
+            <option value="">Выберите</option>
+            {data?.allCategories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            )) ?? []}
+          </select>
+        </Field>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => addModel.mutate(form)}
+        disabled={addModel.isPending || !valid}
+        className="mt-4 h-11 rounded-2xl bg-forest px-6 text-xs font-bold text-paper transition hover:bg-ink/80 disabled:opacity-50"
+      >
+        {addModel.isPending ? "Добавляем..." : "Добавить модель"}
+      </button>
+    </section>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="space-y-2">
+      <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </label>
   );
 }
